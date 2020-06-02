@@ -1,0 +1,200 @@
+---
+title: "Reproducible Research Project 2"
+subtitle: "The Impact of Sever Weather Events on Public Health and Economy Across USA"
+author: "Assefa"
+date: "6/1/2020"
+output: html_document
+---
+
+### 1. Synopsis
+*Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.*  
+*The U.S. National Oceanic and Atmospheric Administration’s (NOAA) storm database holding events data is considered for the analysis. With this analysis, the top five severe weather events resulting deaths, injury, property damage and crop damage is identified.*  
+*This project explores the NOAA storm database which tracks characteristics of major storms and weather events, including when and where it occurs, as well as estimates of any fatalities, injuries, and property damage.*  
+*The project is expected to answer the following major questions. These are:*  
+*1. Which types of events are most harmful with respect to population health across the United States?*  
+*2. Which types of events have the greatest economic consequences across the United States?*
+
+### 2. Data Processing  
+#### 2.1. Load the required packages for th assessment 
+
+```{r, echo = TRUE, results='hide', warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(R.utils)
+require(gridExtra)
+library(cowplot)
+```
+
+
+#### 2.2. Loading, unzipping and reading the required data
+
+```{r, echo = TRUE, results='hide', warning=FALSE, message=FALSE}
+filePath<- getwd()
+fileName<- "stormData.csv.bz2"
+fileUrl<- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+download.file(fileUrl, destfile = fileName, method = "curl")
+bunzip2.default(fileName)
+Storm_Data <- read.csv("stormData.csv")
+```
+
+#### 2.3. EXploring the Data and Get Some Overviews
+
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+names(Storm_Data)
+str(Storm_Data)
+```
+
+As shwon above, there are 902297 observations and 37 variables.
+
+The following histogram gives us a good overview of the events in which the database start in the year 1950 and end in November 2011. It also shows that in the earlier years of the database there are generally fewer events recorded.  
+
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+formatedDate<- as.numeric(format(as.Date(Storm_Data$BGN_DATE, format = "%m/%d/%Y %H:%M:%S"), "%Y"))
+hist(formatedDate, xlab = "Year",col = "lightblue", breaks = 60,
+     main = "Frequency of Storm Events from 1950 to 2011")
+```
+
+#### 2.4. Extracting Variables of Interest for the Analysis
+
+As it is observed from the above section, there are a total of 37 variables. out of these variables
+the following are the lists of variables of interset.  
+1. Health variables: FATALITIES and INJURIES  
+2. Economic variables: PROPDMG, PROPDMGEXP, CROPDMG and CROPDMGEXP  
+3. Events variable: EVTYPE
+
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+SelectedData <- c("STATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+Sel_StormData <- Storm_Data[SelectedData]
+dim(Sel_StormData)
+```
+
+The follwing codes are developed to answer the questions explained in the synopsis section. The top five events are chosen for the demonestration of results in the form of plots
+
+2.4.1. Which types of events are most harmful with respect to population health across the United States?*
+
+**Health Impact**  
+*1. Total fatalities and top five fatalities*
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+T_Fatality <- aggregate(FATALITIES ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5Fatalities <- T_Fatality[order(-T_Fatality$FATALITIES) , ][1:5, ]
+Top5Fatalities
+```
+
+*2. Total injuries and top five injuries*
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+T_Injury <- aggregate(INJURIES ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5Injuries <- T_Injury[order(-T_Injury$INJURIES) , ][1:5, ]
+Top5Injuries
+```
+
+2.4.2. Which types of events have the greatest economic consequences across the United States?
+
+**Economic Impact**  
+The followings expressed the selected variables and their meanings.
+    -PROPDMG = Property damage
+    -CROPDMG = crop damage
+    -PROPDMGEXP = property damage exponent
+    -CROPDMGEXP = crop damage exponents
+
+The symbols embeded in the data is extracted using the following codes:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+unique(Sel_StormData$PROPDMGEXP)
+unique(Sel_StormData$CROPDMGEXP)
+```
+*cleaning and preparing the property and crop damages exponent variables(PROPDMGEXP and `CROPDMGEXP)*
+
+    +, -, ? <- 0
+    0-8 -> 10
+    H, h<- 100
+    K,k -> 1,000
+    M,m -> 1,000,000
+    B,b -> 1,000,000,000
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+exp_multiplier<- function(exp) {
+    ifelse(exp == '+', 1,                         
+        ifelse(exp %in% paste(seq(0,8)), 10^1,      
+            ifelse(exp %in% c('H', 'h'), 10^2,       
+                ifelse(exp %in% c('K', 'k'), 10^3,      
+                    ifelse(exp %in% c('M', 'm'), 10^6,    
+                        ifelse(exp %in% c('B', 'b'), 10^9,
+                               0)
+                        )
+                    )
+                )
+            )
+    )
+    }
+
+Sel_StormData$PropDmgMult <- exp_multiplier(Sel_StormData$PROPDMGEXP)
+Sel_StormData$CropDmgMult <- exp_multiplier(Sel_StormData$CROPDMGEXP)
+```
+Add two variables namely "TotalCropDMG" and "TotalPropDMG" and get their values by multiplying them against the corresponding damage variables.  
+And finally add the above two expenses to get the total economic danage expenses.  
+The overall health imact is calculated by adding one variable T_HealthImpct with the sum of FATALITIES AND INJURIES variables
+
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+Sel_StormData$TotalCropDMG<- Sel_StormData$CROPDMG * Sel_StormData$CropDmgMult
+Sel_StormData$TotalPropDMG<- Sel_StormData$PROPDMG * Sel_StormData$PropDmgMult
+Sel_StormData$TotalDamage<- Sel_StormData$TotalCropDMG + Sel_StormData$TotalPropDMG
+Sel_StormData$T_HealthImpct<- Sel_StormData$FATALITIES + Sel_StormData$INJURIES
+```
+Crop damage:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+CropDamageByEvent <- aggregate(TotalCropDMG ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5EventsCROPDMG <- CropDamageByEvent[order(-CropDamageByEvent$TotalCropDMG) , ][1:5, ]
+Top5EventsCROPDMG
+```
+Property Damage:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+PropDamageByEvent <- aggregate(TotalPropDMG ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5EventsPropDMG <- PropDamageByEvent[order(-PropDamageByEvent$TotalPropDMG) , ][1:5, ]
+Top5EventsPropDMG
+```
+Total Damage:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+TotalDamageByEvent <- aggregate(TotalDamage ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5EventsTotalDMG <- TotalDamageByEvent[order(-TotalDamageByEvent$TotalDamage) , ][1:5, ]
+Top5EventsTotalDMG
+```
+Health Impact:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+HealthDamageByEvent <- aggregate(T_HealthImpct ~ EVTYPE, data = Sel_StormData,  FUN="sum")
+Top5EventsHealthImpact <- HealthDamageByEvent[order(-HealthDamageByEvent$T_HealthImpct) , ][1:5, ]
+Top5EventsHealthImpact
+```
+
+### 3.Results
+#### 3.1. Health Impact
+The graphical representation of the top five events with the highest total fatalities and injuries are shown below:
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+Top5FatalityPlot<-ggplot(Top5Fatalities, aes(x = reorder(EVTYPE,-FATALITIES), y = FATALITIES)) + geom_bar(stat = "identity", fill = "red") +
+    theme(axis.text.x = element_text(angle = 45,hjust = 1), text = element_text(size = 10)) +
+    xlab("Events Type") + ylab("Total Number of Fatalities") + 
+    ggtitle("Top five Severe Weather Events\n causing Fatalities in USA")
+Top5InjuryPlot<- ggplot(Top5Injuries, aes(x = reorder(EVTYPE,-INJURIES), y = INJURIES)) + geom_bar(stat = "identity", fill = "green") +
+    theme(axis.text.x = element_text(angle = 45,hjust = 1), text = element_text(size = 10)) +
+    xlab("Events Type") + ylab("Total Number of Injuries")+
+    ggtitle("Top five Severe Weather Events\n causing Injuries in USA")
+plot_grid(Top5FatalityPlot,Top5InjuryPlot, ncol = 2)
+```
+
+#### 3.2. Economic Impact
+The follwing Plots show the graphical representation of the events causing property damage and crop damage
+
+```{r, echo = TRUE, results ='markup', warning=FALSE, message=FALSE}
+p1<- ggplot(Top5EventsPropDMG, aes(x=reorder(EVTYPE, -TotalPropDMG), y=TotalPropDMG/10^9))+geom_bar(stat="identity", fill="blue")+theme(text = element_text(size = 8),axis.text.x = element_text(angle=35, hjust = 1))+labs(x="Events Type", y="Property Damage(Billion Dollars)")+ggtitle("Top five Events with Highest property damage") 
+p2<- ggplot(Top5EventsCROPDMG, aes(x=reorder(EVTYPE, -TotalCropDMG), y=TotalCropDMG/10^9))+geom_bar(stat="identity", fill="green")+theme(text = element_text(size = 8), axis.text.x = element_text(angle=35, hjust = 1)) +labs(x="Events Type", y="Crop Damage(Billion Dollars)")+ggtitle("Top five Events with Highest Crop damage")
+p3<- ggplot(Top5EventsTotalDMG, aes(x=reorder(EVTYPE, -TotalDamage), y=TotalDamage/10^9))+geom_bar(stat="identity", fill="red")+theme(text =element_text(size=8), axis.text.x = element_text(angle=35, hjust = 1))+labs(x="Events Type", y="Economic Damage(Billion Dollars)")+ggtitle("Top five Events with Highest Economic Impact") 
+p4<- ggplot(Top5EventsHealthImpact, aes(x=reorder(EVTYPE, -T_HealthImpct), y=T_HealthImpct))+geom_bar(stat="identity", fill="purple") + theme(text = element_text(size = 8), axis.text.x = element_text(angle=35, hjust = 1))+labs(x="Events Type", y="Health Impact")+ggtitle("Top five Events with Highest Health Impact\n(Fatalities & Injuries)")  
+plot_grid(p1, p2, p3, p4, nrow =2, ncol = 2, align = 'vh')
+```
+
+### 4. Conclusions
+- The frequency of storm events increased from 1950 through 2011(Plot 1).  
+- Tornado is the most significant causes for the fatalities across USA in the mentioned years of measurments follwed by Excessive heat, flash flood, heat and lightning.  
+- Interms of causes of injuries, tornato took the lionshares followed by TSTM wind, flood, excessive heat and lightning.  
+- From the top five events with the highest health impacts, tornado takes the highest.  
+- Highest property damages are observed due to flood followed by hurricane typhoon, tornado, storm surge and flash flood.  
+- drought is the highest weather events to cause crop damages across USA.  
+- The highest total economic damage is caused flood followed by hurricane typhoon, tornado, storm surge and hail.
+
